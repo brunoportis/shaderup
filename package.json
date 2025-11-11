@@ -1,0 +1,52 @@
+{
+  "name": "shaderup",
+  "version": "0.2.0",
+  "description": "A lightweight and easy-to-use library for creating and managing WebGL shaders on a canvas element.",
+  "type": "module",
+  "main": "./dist/index.cjs.js",
+  "module": "./dist/index.es.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "~5.9.3",
+    "vite": "npm:rolldown-vite@7.2.2",
+    "vite-plugin-dts": "^4.5.4"
+  },
+  "overrides": {
+    "vite": "npm:rolldown-vite@7.2.2"
+  },
+  "author": "Bruno Portis <bruno@portis.dev> (https://portis.dev)",
+  "license": "MIT",
+  "homepage": "https://github.com/bportis/shaderup#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brunoportis/shaderup.git"
+  },
+  "bugs": {
+    "url": "https://github.com/brunoportis/shaderup/issues"
+  },
+  "keywords": [
+    "shader",
+    "glsl",
+    "webgl",
+    "canvas",
+    "graphics",
+    "2d",
+    "3d"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.es.js",
+      "require": "./dist/index.cjs.js"
+    }
+  },
+  "files": [
+    "dist"
+  ]
+}
