@@ -1,6 +1,6 @@
 {
   "name": "shaderup",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A lightweight and easy-to-use library for creating and managing WebGL shaders on a canvas element.",
   "type": "module",
   "main": "./dist/index.cjs.js",
