@@ -106,10 +106,10 @@
         <div class="code-block">
             <pre><code>&lt;!-- The magic behind this page's background --&gt;
 &lt;script type="module"&gt;
-  import { ShaderUp } from "https://unpkg.com/shaderup@0.3.0";
+  import { ShaderUp } from "https://unpkg.com/shaderup@0.3.0/dist/index.es.js";
 
   const shader = new ShaderUp({
-    fragmentShader: await fetch("./landing.frag").then(r => r.text())
+    fragmentShader: await fetch("/shaderup/landing.frag").then(r => r.text())
   });
   
   shader.start();
@@ -128,11 +128,11 @@
     <script type="module">
         // This is the actual code that runs the background
         try {
-            // Use the version you just published. Make sure it's correct.
             const libUrl = "https://unpkg.com/shaderup@0.3.0/dist/index.es.js";
             const { ShaderUp } = await import(libUrl);
             
-            const fragUrl = "./landing.frag";
+            // Use an absolute path from the domain root, for robustness on GitHub Pages
+            const fragUrl = "/shaderup/landing.frag";
             const fragmentShader = await fetch(fragUrl).then(r => r.text());
 
             const shader = new ShaderUp({
