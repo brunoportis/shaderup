@@ -1,4 +1,4 @@
-import { ShaderUp } from '../src/ShaderUp';
+import { ShaderUp } from '../../src/ShaderUp';
 // Import the fragment shader as a raw string using Vite's ?raw syntax
 import fragmentShader from './main.frag?raw';
 
