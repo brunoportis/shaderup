@@ -96,6 +96,42 @@
             font-size: 0.9rem;
             color: #8b949e;
         }
+
+        .code-tabs {
+            max-width: 500px;
+            width: 100%;
+        }
+        .tab-buttons {
+            display: flex;
+            border-bottom: 1px solid #30363d;
+        }
+        .tab-button {
+            background: none;
+            border: none;
+            color: var(--color-text);
+            padding: 0.8rem 1.2rem;
+            cursor: pointer;
+            font-size: 1rem;
+            border-bottom: 2px solid transparent;
+        }
+        .tab-button.active {
+            border-bottom-color: var(--color-primary);
+            color: var(--color-primary);
+        }
+        .code-block-container {
+            background-color: var(--color-code-bg);
+            border: 1px solid #30363d;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            padding: 1.5rem;
+            text-align: left;
+        }
+        .code-block {
+            display: none;
+        }
+        .code-block.active {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -104,17 +140,465 @@
         <h1>shaderup</h1>
         <p class="subtitle">Go from GLSL to live WebGL in seconds.</p>
         
-        <div class="code-block">
-            <pre><code>&lt;!-- The magic behind this page's background --&gt;
-&lt;script type="module"&gt;
-  import { ShaderUp } from "https://unpkg.com/shaderup@0.3.0/dist/index.es.js";
-                                                                                                                                                      
-  const shader = new ShaderUp({
-    fragmentShader: await fetch("/shaderup/landing.txt").then(r => r.text())
-  });
+        <div class="code-tabs">
+            <div class="tab-buttons">
+                <button class="tab-button active" data-tab="js">JavaScript</button>
+                <button class="tab-button" data-tab="glsl">GLSL</button>
+            </div>
+            <div class="code-block-container">
+                <div class="code-block active" id="js">
+                    <pre><code>export type UniformType = 'float' | 'vec2' | 'vec3' | 'vec4' | 'int' | 'sampler2D';
+
+/**
+ * Configuration for the ShaderUp instance.
+ */
+export interface ShaderUpOptions {
+  /** The ID of the canvas element in the DOM. */
+  canvasId?: string;
+  /** Direct reference to a canvas element. Takes precedence over canvasId. */
+  canvas?: HTMLCanvasElement;
+  /** The source code for the fragment shader. */
+  fragmentShader: string;
+  /** Optional source code for the vertex shader. Defaults to a full-screen triangle. */
+  vertexShaderSource?: string;
+  /** Map of uniform names to their types. */
+  uniforms?: { [name: string]: UniformType };
+  /** Optional callback triggered when the canvas is resized. */
+  onResize?: (width: number, height: number) => void;
+}
+
+interface UniformInfo {
+  location: WebGLUniformLocation;
+  type: UniformType;
+  textureUnit?: number;
+}
+
+/**
+ * ShaderUp: A lightweight WebGL boilerplate for fragment shader rendering.
+ * Handles context management, resizing, render loops, and uniform binding.
+ */
+export class ShaderUp {
+  // --- Constants for GLSL Conventions ---
+  public static readonly UNIFORM_TIME = 'u_time';
+  public static readonly UNIFORM_RESOLUTION = 'u_resolution';
+  public static readonly ATTRIB_POSITION = 'a_position';
+
+  // --- Public Readonly Properties ---
+  public readonly canvas: HTMLCanvasElement;
+  public readonly gl: WebGLRenderingContext | WebGL2RenderingContext;
   
-  shader.start();
-&lt;/script&gt;</code></pre>
+  /**
+   * Public object to update custom uniform values.
+   * @example shader.uniforms.u_speed = 0.5;
+   */
+  public readonly uniforms: { [name: string]: any } = {};
+
+  // --- Private Internal State ---
+  private program: WebGLProgram | null = null;
+  private animationFrameId: number | null = null;
+  private resizeObserver: ResizeObserver | null = null;
+  private isDestroyed = false;
+  private uniformInfo: Map<string, UniformInfo> = new Map();
+  private textures: Map<number, WebGLTexture> = new Map();
+  
+  // Cache locations for standard uniforms to avoid map lookups in the loop
+  private timeLocation: WebGLUniformLocation | null = null;
+  private resolutionLocation: WebGLUniformLocation | null = null;
+  
+  // Pre-bound render function to prevent garbage collection thrashing
+  private readonly boundRender: (time: number) => void;
+
+  /**
+   * Creates a new ShaderUp instance.
+   * @param options Configuration options.
+   * @throws Error if WebGL is not supported or canvas is missing.
+   */
+  constructor(options: ShaderUpOptions) {
+    // 1. Resolve Canvas
+    if (options.canvas) {
+      this.canvas = options.canvas;
+    } else if (options.canvasId) {
+      const el = document.getElementById(options.canvasId) as HTMLCanvasElement;
+      if (!el) throw new Error(`[ShaderUp] Canvas #${options.canvasId} not found.`);
+      this.canvas = el;
+    } else {
+      const el = document.querySelector('canvas');
+      if (!el) throw new Error("[ShaderUp] No &lt;canvas&gt; element found on page.");
+      this.canvas = el;
+    }
+
+    // 2. Initialize Context (Prefer WebGL 2, Fallback to WebGL 1)
+    const contextAttributes: WebGLContextAttributes = { 
+      alpha: false, 
+      antialias: false 
+    }; 
+    
+    let gl: WebGLRenderingContext | WebGL2RenderingContext | null = 
+      this.canvas.getContext('webgl2', contextAttributes) as WebGL2RenderingContext;
+
+    if (!gl) {
+      gl = this.canvas.getContext('webgl', contextAttributes) as WebGLRenderingContext;
+    }
+    
+    if (!gl) throw new Error("[ShaderUp] WebGL not supported in this browser.");
+    this.gl = gl;
+
+    // 3. Bind Robustness Events
+    this.canvas.addEventListener('webglcontextlost', this.handleContextLost);
+    this.canvas.addEventListener('webglcontextrestored', this.handleContextRestored);
+
+    // 4. Setup Resources
+    this.initResources(options);
+
+    // 5. Setup Resize Observer
+    this.resizeObserver = new ResizeObserver(() => this.handleResize(options.onResize));
+    this.resizeObserver.observe(this.canvas);
+    
+    // 6. Bind Loop
+    this.boundRender = this.render.bind(this);
+  }
+
+  /**
+   * Internal method to compile shaders and setup buffers.
+   * Separated to allow re-initialization on context restoration.
+   */
+  private initResources(options: ShaderUpOptions): void {
+    const { gl } = this;
+    
+    const vsSource = options.vertexShaderSource || this.getDefaultVertexShader();
+    const vertexShader = this.createShader(gl.VERTEX_SHADER, vsSource);
+    const fragmentShader = this.createShader(gl.FRAGMENT_SHADER, options.fragmentShader);
+    
+    this.program = this.createProgram(vertexShader, fragmentShader);
+
+    // Clean up individual shaders as they are now linked into the program
+    gl.deleteShader(vertexShader);
+    gl.deleteShader(fragmentShader);
+
+    // Setup Full-Screen Triangle Buffer
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    // A single triangle that covers the range [-1, -1] to [3, 3] covers the whole screen
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+
+    const positionLoc = gl.getAttribLocation(this.program, ShaderUp.ATTRIB_POSITION);
+    gl.enableVertexAttribArray(positionLoc);
+    gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, 0, 0);
+
+    // Cache Standard Uniform Locations
+    this.timeLocation = gl.getUniformLocation(this.program, ShaderUp.UNIFORM_TIME);
+    this.resolutionLocation = gl.getUniformLocation(this.program, ShaderUp.UNIFORM_RESOLUTION);
+
+    // Process Custom Uniforms
+    if (options.uniforms) {
+      let texUnitCount = 0;
+      for (const [name, type] of Object.entries(options.uniforms)) {
+        const location = gl.getUniformLocation(this.program, name);
+        if (!location) {
+          console.warn(`[ShaderUp] Uniform "${name}" not found in shader source (it may be unused and optimized out).`);
+          continue;
+        }
+
+        const info: UniformInfo = { location, type };
+
+        if (type === 'sampler2D') {
+          info.textureUnit = texUnitCount++;
+        }
+
+        this.uniformInfo.set(name, info);
+        this.uniforms[name] = this.getDefaultUniformValue(type);
+      }
+    }
+    
+    // Initial resize to set viewport
+    this.handleResize(options.onResize);
+  }
+
+  /**
+   * Updates a texture for a specific uniform.
+   * @param name The name of the uniform (must be defined as 'sampler2D' in options).
+   * @param image The source image, video, or canvas.
+   */
+  public setTexture(name: string, image: TexImageSource): void {
+    if (this.isDestroyed) return;
+    
+    const info = this.uniformInfo.get(name);
+    if (!info || info.type !== 'sampler2D' || info.textureUnit === undefined) {
+      console.warn(`[ShaderUp] Warning: "${name}" is not a registered sampler2D uniform.`);
+      return;
+    }
+
+    const gl = this.gl;
+    let texture = this.textures.get(info.textureUnit);
+    
+    // Lazy creation of texture
+    if (!texture) {
+      texture = gl.createTexture()!;
+      this.textures.set(info.textureUnit, texture);
+    }
+
+    gl.activeTexture(gl.TEXTURE0 + info.textureUnit);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    
+    // Standard parameters for non-power-of-two support
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+  }
+
+  /**
+   * Starts the rendering loop.
+   */
+  public start(): void {
+    if (!this.animationFrameId && !this.isDestroyed) {
+      this.animationFrameId = requestAnimationFrame(this.boundRender);
+    }
+  }
+
+  /**
+   * Stops the rendering loop. Resources remain valid.
+   */
+  public stop(): void {
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+  }
+
+  /**
+   * Completely disposes of the WebGL context resources and listeners.
+   * Call this when the component is unmounted.
+   */
+  public dispose(): void {
+    this.stop();
+    this.isDestroyed = true;
+
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+
+    this.canvas.removeEventListener('webglcontextlost', this.handleContextLost);
+    this.canvas.removeEventListener('webglcontextrestored', this.handleContextRestored);
+
+    const gl = this.gl;
+    
+    // Resource cleanup
+    this.textures.forEach(tex => gl.deleteTexture(tex));
+    this.textures.clear();
+
+    if (this.program) {
+      gl.deleteProgram(this.program);
+      this.program = null;
+    }
+    
+    // Note: Buffer cleanup is omitted for brevity but recommended for strict memory management
+  }
+
+  // --- Private Helpers ---
+
+  private handleContextLost = (e: Event): void => {
+    e.preventDefault();
+    this.stop();
+    console.warn("[ShaderUp] Context Lost");
+  };
+
+  private handleContextRestored = (): void => {
+    console.log("[ShaderUp] Context Restored - Re-initializing...");
+    // In a real implementation, you would need to re-fetch shaders or cache the options object
+    // to pass it back to initResources here.
+  };
+
+  private getDefaultUniformValue(type: UniformType): any {
+    switch (type) {
+      case 'float': return 0.0;
+      case 'vec2': return [0, 0];
+      case 'vec3': return [0, 0, 0];
+      case 'vec4': return [0, 0, 0, 0];
+      case 'int': return 0;
+      case 'sampler2D': return null;
+      default: return null;
+    }
+.
+  }
+
+  private getDefaultVertexShader(): string {
+    return `
+      attribute vec2 ${ShaderUp.ATTRIB_POSITION};
+      void main() {
+        gl_Position = vec4(${ShaderUp.ATTRIB_POSITION}, 0.0, 1.0);
+      }
+    `;
+  }
+
+  private createShader(type: number, source: string): WebGLShader {
+    const shader = this.gl.createShader(type);
+    if (!shader) throw new Error("[ShaderUp] Unable to create shader object.");
+    
+    this.gl.shaderSource(shader, source);
+    this.gl.compileShader(shader);
+    
+    if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
+      const log = this.gl.getShaderInfoLog(shader);
+      this.gl.deleteShader(shader);
+      throw new Error(`[ShaderUp] Shader compilation failed:\n${log}`);
+    }
+    return shader;
+  }
+
+  private createProgram(vs: WebGLShader, fs: WebGLShader): WebGLProgram {
+    const program = this.gl.createProgram();
+    if (!program) throw new Error("[ShaderUp] Unable to create program object.");
+
+    this.gl.attachShader(program, vs);
+    this.gl.attachShader(program, fs);
+    this.gl.linkProgram(program);
+    
+    if (!this.gl.getProgramParameter(program, this.gl.LINK_STATUS)) {
+      const log = this.gl.getProgramInfoLog(program);
+      this.gl.deleteProgram(program);
+      throw new Error(`[ShaderUp] Program linking failed:\n${log}`);
+    }
+    return program;
+  }
+
+  private handleResize(callback?: (w: number, h: number) => void): void {
+    const displayWidth = this.canvas.clientWidth;
+    const displayHeight = this.canvas.clientHeight;
+
+    if (this.canvas.width !== displayWidth || this.canvas.height !== displayHeight) {
+      this.canvas.width = displayWidth;
+      this.canvas.height = displayHeight;
+      this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
+      
+      if (callback) callback(displayWidth, displayHeight);
+    }
+  }
+
+  private render(time: number): void {
+    if (this.isDestroyed || !this.program) return;
+
+    const gl = this.gl;
+    gl.useProgram(this.program);
+
+    // Update Standard Uniforms
+    if (this.timeLocation) gl.uniform1f(this.timeLocation, time * 0.001);
+    if (this.resolutionLocation) gl.uniform2f(this.resolutionLocation, gl.drawingBufferWidth, gl.drawingBufferHeight);
+
+    // Update Custom Uniforms
+    for (const [name, info] of this.uniformInfo) {
+      const value = this.uniforms[name];
+      if (value === null || value === undefined) continue;
+
+      switch (info.type) {
+        case 'float': gl.uniform1f(info.location, value); break;
+        case 'vec2': gl.uniform2f(info.location, value[0], value[1]); break;
+        case 'vec3': gl.uniform3f(info.location, value[0], value[1], value[2]); break;
+        case 'vec4': gl.uniform4f(info.location, value[0], value[1], value[2], value[3]); break;
+        case 'int':   gl.uniform1i(info.location, value); break;
+        case 'sampler2D': 
+          if (info.textureUnit !== undefined) {
+            gl.uniform1i(info.location, info.textureUnit);
+          }
+          break;
+      }
+    }
+
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    this.animationFrameId = requestAnimationFrame(this.boundRender);
+  }
+}
+</code></pre>
+                </div>
+                <div class="code-block" id="glsl">
+                    <pre><code>// Cosmic Starfield/Nebula Shader
+// Loosely based on concepts by Inigo Quilez and others
+
+precision mediump float;
+uniform float u_time;
+uniform vec2 u_resolution;
+
+// --- Utility Functions ---
+// 2D Random function
+float random (in vec2 st) {
+    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+}
+
+// 2D Noise function
+float noise (in vec2 st) {
+    vec2 i = floor(st);
+    vec2 f = fract(st);
+    vec2 u = f*f*(3.0-2.0*f); // Smoothstep
+
+    return mix( mix( random( i + vec2(0.0,0.0) ),
+                   random( i + vec2(1.0,0.0) ), u.x),
+                mix( random( i + vec2(0.0,1.0) ),
+                   random( i + vec2(1.0,1.0) ), u.x), u.y);
+}
+
+// Fractal Brownian Motion (FBM) - for creating cloud-like textures
+float fbm (in vec2 st) {
+    float value = 0.0;
+    float amplitude = 0.5;
+    float frequency = 0.0;
+
+    for (int i = 0; i < 6; i++) {
+        value += amplitude * noise(st);
+        st *= 2.0;
+        amplitude *= 0.5;
+    }
+    return value;
+}
+
+// --- Main Image ---
+void main() {
+    vec2 st = gl_FragCoord.xy/u_resolution.xy;
+    st.x *= u_resolution.x/u_resolution.y;
+
+    // --- Background Color ---
+    // A deep space blue/purple gradient
+    vec3 color = vec3(0.05, 0.0, 0.1);
+    color += vec3(0.1, 0.0, 0.2) * (1.0 - st.y);
+
+    // --- Nebula / Gas Clouds ---
+    // Use FBM with time to create slow-moving clouds
+    // We layer two FBM calls at different scales and speeds for parallax
+    vec2 q = vec2(0.0);
+    q.x = fbm( st + 0.0*u_time );
+    q.y = fbm( st + vec2(1.0) );
+
+    vec2 r = vec2(0.0);
+    r.x = fbm( st + 1.0*q + vec2(1.7,9.2) + 0.15*u_time );
+    r.y = fbm( st + 1.0*q + vec2(8.3,2.8) + 0.126*u_time);
+
+    float f = fbm(st+r);
+
+    // Mix in nebula colors based on the noise
+    color = mix(color, vec3(0.3, 0.1, 0.4), f * 0.8); // Purples
+    color = mix(color, vec3(0.0, 0.2, 0.5), (f*f) * 0.5); // Blues
+    color = mix(color, vec3(0.6, 0.3, 0.3), (f*f*f) * 0.3); // Faint reds
+
+    // --- Stars ---
+    // Create a dense field of tiny, flickering stars
+    float star_density = 0.998;
+    float star_val = random(st * 71.3);
+    if (star_val > star_density) {
+        // Make stars twinkle
+        float twinkle = random(st + vec2(u_time * 0.002, 0.0));
+        if (twinkle > 0.5) {
+            color += vec3(1.0, 1.0, 0.8) * (star_val - star_density) / (1.0 - star_density);
+        }
+    }
+    
+    gl_FragColor = vec4(color, 1.0);
+}
+</code></pre>
+                </div>
+            </div>
         </div>
 
         <div class="links">
@@ -148,6 +632,24 @@
             const canvas = document.getElementById('shader-canvas');
             if (canvas) canvas.style.display = 'none';
         }
+    </script>
+    <script>
+        const tabButtons = document.querySelectorAll('.tab-button');
+        const codeBlocks = document.querySelectorAll('.code-block');
+
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+                codeBlocks.forEach(block => {
+                    if (block.id === button.dataset.tab) {
+                        block.classList.add('active');
+                    } else {
+                        block.classList.remove('active');
+                    }
+                });
+            });
+        });
     </script>
 </body>
 </html>
