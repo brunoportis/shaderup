@@ -37,7 +37,7 @@ void main() {
     st.x *= u_resolution.x/u_resolution.y;
 
     // Use time to animate the noise
-    float n = noise(st * 3.0 + u_time * 0.1);
+    float n = noise(st * 3.0 + vec2(u_time * 0.1));
 
     // A soft color palette
     vec3 color = mix(vec3(0.05, 0.05, 0.2), vec3(0.1, 0.2, 0.4), n);
