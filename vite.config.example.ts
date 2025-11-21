@@ -12,7 +12,7 @@ const htmlEntries = globSync('examples/**/*.html').reduce((acc, file) => {
 
 export default defineConfig({
   // The base path for the deployed site. './' makes it relative.
-  base: './',
+  base: '/shaderup/',
   build: {
     // Output directory is 'docs'
     outDir: 'docs',
