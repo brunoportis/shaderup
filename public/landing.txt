@@ -1,15 +1,81 @@
+// Cosmic Starfield/Nebula Shader
+// Loosely based on concepts by Inigo Quilez and others
+
 precision mediump float;
 uniform float u_time;
 uniform vec2 u_resolution;
 
+// --- Utility Functions ---
+// 2D Random function
+float random (in vec2 st) {
+    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+}
+
+// 2D Noise function
+float noise (in vec2 st) {
+    vec2 i = floor(st);
+    vec2 f = fract(st);
+    vec2 u = f*f*(3.0-2.0*f); // Smoothstep
+
+    return mix( mix( random( i + vec2(0.0,0.0) ),
+                   random( i + vec2(1.0,0.0) ), u.x),
+                mix( random( i + vec2(0.0,1.0) ),
+                   random( i + vec2(1.0,1.0) ), u.x), u.y);
+}
+
+// Fractal Brownian Motion (FBM) - for creating cloud-like textures
+float fbm (in vec2 st) {
+    float value = 0.0;
+    float amplitude = 0.5;
+    float frequency = 0.0;
+
+    for (int i = 0; i < 6; i++) {
+        value += amplitude * noise(st);
+        st *= 2.0;
+        amplitude *= 0.5;
+    }
+    return value;
+}
+
+// --- Main Image ---
 void main() {
-    vec2 st = gl_FragCoord.xy / u_resolution.xy;
-    
-    // A simple, unmissable pattern of moving diagonal stripes
-    float stripes = fract(st.x - st.y + u_time * 0.5);
-    
-    // Flash a bright red color
-    vec3 color = vec3(stripes, 0.0, 0.0);
+    vec2 st = gl_FragCoord.xy/u_resolution.xy;
+    st.x *= u_resolution.x/u_resolution.y;
+
+    // --- Background Color ---
+    // A deep space blue/purple gradient
+    vec3 color = vec3(0.05, 0.0, 0.1);
+    color += vec3(0.1, 0.0, 0.2) * (1.0 - st.y);
+
+    // --- Nebula / Gas Clouds ---
+    // Use FBM with time to create slow-moving clouds
+    // We layer two FBM calls at different scales and speeds for parallax
+    vec2 q = vec2(0.0);
+    q.x = fbm( st + 0.0*u_time );
+    q.y = fbm( st + vec2(1.0) );
+
+    vec2 r = vec2(0.0);
+    r.x = fbm( st + 1.0*q + vec2(1.7,9.2) + 0.15*u_time );
+    r.y = fbm( st + 1.0*q + vec2(8.3,2.8) + 0.126*u_time);
+
+    float f = fbm(st+r);
+
+    // Mix in nebula colors based on the noise
+    color = mix(color, vec3(0.3, 0.1, 0.4), f * 0.8); // Purples
+    color = mix(color, vec3(0.0, 0.2, 0.5), (f*f) * 0.5); // Blues
+    color = mix(color, vec3(0.6, 0.3, 0.3), (f*f*f) * 0.3); // Faint reds
+
+    // --- Stars ---
+    // Create a dense field of tiny, flickering stars
+    float star_density = 0.998;
+    float star_val = random(st * 71.3);
+    if (star_val > star_density) {
+        // Make stars twinkle
+        float twinkle = random(st + vec2(u_time * 0.1, 0.0));
+        if (twinkle > 0.5) {
+            color += vec3(1.0, 1.0, 0.8) * (star_val - star_density) / (1.0 - star_density);
+        }
+    }
     
     gl_FragColor = vec4(color, 1.0);
 }
