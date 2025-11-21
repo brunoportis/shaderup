@@ -71,7 +71,7 @@ void main() {
     float star_val = random(st * 71.3);
     if (star_val > star_density) {
         // Make stars twinkle
-        float twinkle = random(st + vec2(u_time * 0.01, 0.0));
+        float twinkle = random(st + vec2(u_time * 0.002, 0.0));
         if (twinkle > 0.5) {
             color += vec3(1.0, 1.0, 0.8) * (star_val - star_density) / (1.0 - star_density);
         }
