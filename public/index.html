@@ -120,7 +120,7 @@
   import { ShaderUp } from "https://unpkg.com/shaderup@0.3.0/dist/index.es.js";
                                                                                                                                                       
   const shader = new ShaderUp({
-    fragmentShader: await fetch("/shaderup/landing.frag").then(r => r.text())
+    fragmentShader: await fetch("/shaderup/landing.txt").then(r => r.text())
   });
   
   shader.start();
@@ -155,7 +155,7 @@
             const { ShaderUp } = await import(libUrl);
             logStatus("ShaderUp library loaded. Fetching fragment shader...");
             
-            const fragUrl = "/shaderup/landing.frag";
+            const fragUrl = "/shaderup/landing.txt";
             const fragmentShader = await fetch(fragUrl).then(r => {
                 if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
                 return r.text();
