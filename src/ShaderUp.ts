@@ -40,7 +40,26 @@ export interface ShaderUpOptions {
   numInstances?: number;
   /** Optional callback triggered when the canvas is resized. */
   onResize?: (width: number, height: number) => void;
+  /** An optional callback executed at the beginning of each render frame. */
+  onBeforeRender?: () => void;
 }
+
+/**
+ * Configuration for creating a ShaderUp instance linked to HTML elements.
+ */
+export interface ShaderUpElementsOptions extends Omit<ShaderUpOptions, 'numInstances' | 'renderMode'> {
+  /** The HTML elements to use as the basis for instancing. */
+  elements: HTMLElement[] | NodeListOf<HTMLElement>;
+  /**
+   * A callback function executed on every frame to update custom per-instance data.
+   * The 'a_instanceRect' (vec4) data is handled automatically.
+   * @param data - The Float32Array to populate with your custom attribute data.
+   * @param elements - The array of HTML elements.
+   * @param stride - The stride (in floats) of the full interleaved data, including the automatic rect.
+   */
+  onUpdate?: (data: Float32Array, elements: HTMLElement[], stride: number) => void;
+}
+
 
 
 interface UniformInfo {
@@ -69,6 +88,8 @@ export class ShaderUp {
    */
   public readonly uniforms: { [name: string]: any } = {};
 
+  private readonly options: ShaderUpOptions;
+
   // --- Private Internal State ---
   private readonly renderMode: RenderMode;
   private readonly attributeOptions?: { [name: string]: AttributeOptions };
@@ -96,6 +117,7 @@ export class ShaderUp {
    * @throws Error if WebGL is not supported or canvas is missing.
    */
   constructor(options: ShaderUpOptions) {
+    this.options = options;
     this.renderMode = options.renderMode || 'fullscreen';
     
     // Validate options for instanced mode
@@ -489,6 +511,8 @@ export class ShaderUp {
   private render(time: number): void {
     if (this.isDestroyed || !this.program) return;
 
+    this.options.onBeforeRender?.();
+
     const gl = this.gl;
     gl.useProgram(this.program);
 
@@ -525,5 +549,64 @@ export class ShaderUp {
     }
 
     this.animationFrameId = requestAnimationFrame(this.boundRender);
+  }
+
+  /**
+   * Creates a ShaderUp instance specifically for rendering effects on a list of HTML elements.
+   * This method abstracts away the manual setup of a render loop for DOM synchronization.
+   * @param options The configuration for the element-based ShaderUp instance.
+   * @returns A fully configured ShaderUp instance.
+   */
+  public static fromElements(options: ShaderUpElementsOptions): ShaderUp {
+    const elements = Array.from(options.elements);
+    const numInstances = elements.length;
+
+    // Automatically add the 'a_instanceRect' attribute.
+    const allAttributes: { [name: string]: AttributeOptions } = {
+      'a_instanceRect': { size: 4, instanced: true },
+      ...options.attributes
+    };
+
+    // Calculate the total stride (in floats) for the interleaved buffer.
+    let strideInFloats = 0;
+    for (const name in allAttributes) {
+      strideInFloats += allAttributes[name].size;
+    }
+
+    const instanceData = new Float32Array(numInstances * strideInFloats);
+
+    // This function will be called on every frame by the ShaderUp instance.
+    const updateInstanceData = () => {
+      const dpr = window.devicePixelRatio;
+      
+      for (let i = 0; i < numInstances; i++) {
+        const rect = elements[i].getBoundingClientRect();
+        const ptr = i * strideInFloats;
+        
+        // Automatically populate the 'a_instanceRect' data.
+        instanceData[ptr] = rect.left * dpr;
+        instanceData[ptr+1] = rect.top * dpr;
+        instanceData[ptr+2] = rect.width * dpr;
+        instanceData[ptr+3] = rect.height * dpr;
+      }
+      
+      // Call the user's update function to populate custom data.
+      if (options.onUpdate) {
+        options.onUpdate(instanceData, elements, strideInFloats);
+      }
+      
+      // The shader instance will be available via closure.
+      shader.setData(instanceData);
+    };
+
+    const shader = new ShaderUp({
+      ...options,
+      renderMode: 'instanced',
+      numInstances,
+      attributes: allAttributes,
+      onBeforeRender: updateInstanceData, // Hook into the render loop.
+    });
+
+    return shader;
   }
 }
