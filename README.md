@@ -95,43 +95,43 @@ img.onload = () => {
 
 ## Instanced Rendering
 
-`shaderup` now supports high-performance instanced rendering, allowing you to draw many objects (instances) with varied properties in a single draw call. This is ideal for particle systems, UI effects, and other scenarios where you need to render many similar but distinct elements efficiently.
+`shaderup` supports high-performance instanced rendering, allowing you to draw many objects (instances) with varied properties in a single draw call. This is ideal for applying GPU effects to multiple UI elements, creating particle systems, and more.
+
+Instead of rendering a fullscreen effect, you can draw a small quad for each of your HTML elements and position it using `getBoundingClientRect()`.
 
 To use instanced rendering:
 
-1.  **Define your instance attributes**: These are the per-instance data (e.g., position, color, rotation) that your shaders will use.
-2.  **Provide a custom vertex shader**: Your vertex shader will need to declare `in` attributes matching your instance data (along with `a_quadVertex` for base geometry).
-3.  **Update instance data**: Use the `setData()` method to pass a `Float32Array` containing your interleaved instance data to the GPU.
+1.  **Define your instance attributes**: These are the per-instance data (e.g., position, color) that your shaders will use.
+2.  **Provide a custom vertex shader**: Your vertex shader will declare `in` attributes matching your instance data.
+3.  **Update instance data**: In your animation loop, get the position of your HTML elements and use `setData()` to pass the updated coordinates to the GPU.
 
 ```javascript
 import { ShaderUp } from 'shaderup';
 import fragmentShader from './instanced-shader.frag?raw'; // Your fragment shader
 
-// Your vertex shader (must define 'a_quadVertex' and your instance attributes)
+// A simple vertex shader to position and size each instance
 const vertexShader = `#version 300 es
     in vec2 a_quadVertex;
-    in vec4 a_instancePositionSize; // e.g., xy=position, zw=size
+    in vec4 a_instanceRect; // xy=position, zw=size
     in vec3 a_instanceColor;
 
     uniform vec2 u_resolution;
-
-    out vec3 v_color; // Pass to fragment shader
+    out vec3 v_color;
 
     void main() {
-        vec2 position = a_instancePositionSize.xy;
-        vec2 size = a_instancePositionSize.zw;
-
-        vec2 finalPos = position + (a_quadVertex * size);
+        vec2 finalPos = a_instanceRect.xy + (a_quadVertex * a_instanceRect.zw);
         vec2 clipSpace = (finalPos / u_resolution) * 2.0 - 1.0;
         clipSpace.y *= -1.0;
         gl_Position = vec4(clipSpace, 0.0, 1.0);
-
         v_color = a_instanceColor;
     }
 `;
 
-// Initialize with renderMode: 'instanced' and define attributes
-const numInstances = 100;
+// 1. Get your HTML elements
+const elements = Array.from(document.querySelectorAll('.my-button-class'));
+const numInstances = elements.length;
+
+// 2. Initialize ShaderUp for instancing
 const shader = new ShaderUp({
   canvasId: 'instanced-canvas',
   renderMode: 'instanced',
@@ -139,31 +139,37 @@ const shader = new ShaderUp({
   vertexShader,
   numInstances,
   attributes: {
-    'a_instancePositionSize': { size: 4, instanced: true }, // vec4 for position (xy) and size (zw)
-    'a_instanceColor':        { size: 3, instanced: true }, // vec3 for color (rgb)
+    'a_instanceRect':  { size: 4, instanced: true },
+    'a_instanceColor': { size: 3, instanced: true },
   }
 });
 
-// Create and update instance data (e.g., in your animation loop)
-const instanceData = new Float32Array(numInstances * (4 + 3)); // 4 for pos/size, 3 for color
+// 3. Create a data array and update it in a loop
+const instanceData = new Float32Array(numInstances * (4 + 3)); // 4 for rect, 3 for color
 
-function updateInstances() {
+function updateAndRender() {
+    const dpr = window.devicePixelRatio;
     let ptr = 0;
     for (let i = 0; i < numInstances; i++) {
-        // Example: random position, size, and color for each instance
-        instanceData[ptr++] = Math.random() * window.innerWidth;  // x
-        instanceData[ptr++] = Math.random() * window.innerHeight; // y
-        instanceData[ptr++] = 50 + Math.random() * 50;            // width
-        instanceData[ptr++] = 50 + Math.random() * 50;            // height
-        instanceData[ptr++] = Math.random();                      // r
-        instanceData[ptr++] = Math.random();                      // g
-        instanceData[ptr++] = Math.random();                      // b
+        const rect = elements[i].getBoundingClientRect();
+
+        // Position & Size
+        instanceData[ptr++] = rect.left * dpr;
+        instanceData[ptr++] = rect.top * dpr;
+        instanceData[ptr++] = rect.width * dpr;
+        instanceData[ptr++] = rect.height * dpr;
+        
+        // Color (e.g., cycle colors)
+        instanceData[ptr++] = Math.sin(i * 0.5) * 0.5 + 0.5;
+        instanceData[ptr++] = Math.cos(i * 0.3) * 0.5 + 0.5;
+        instanceData[ptr++] = Math.sin(i * 0.7) * 0.5 + 0.5;
     }
     shader.setData(instanceData);
+    requestAnimationFrame(updateAndRender);
 }
 
-updateInstances(); // Initial data setup
 shader.start();
+updateAndRender(); // Start the loop
 ```
 
 ## API Quick Reference
