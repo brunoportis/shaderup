@@ -5,19 +5,70 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ShaderUp Examples</title>
     <style>
-        body { font-family: sans-serif; padding: 2rem; }
-        ul { list-style: none; padding: 0; }
-        li { margin-bottom: 1rem; }
-        a { font-size: 1.2rem; }
+        :root {
+            --bg-color: #050505;
+            --text-color: #ffffff;
+            --link-bg: rgba(255, 255, 255, 0.05);
+            --link-border: rgba(255, 255, 255, 0.1);
+            --link-hover-bg: rgba(255, 255, 255, 0.1);
+        }
+        body {
+            font-family: 'Inter', sans-serif; /* Assuming Inter font is generally available or imported */
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            padding: 2rem;
+            margin: 0;
+            line-height: 1.6;
+        }
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 2rem;
+            color: var(--text-color);
+        }
+        ul {
+            list-style: none;
+            padding: 0;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+        li {
+            margin-bottom: 0; /* Resetting margin as gap handles spacing */
+        }
+        a {
+            display: block; /* Make the whole list item clickable */
+            background-color: var(--link-bg);
+            border: 1px solid var(--link-border);
+            color: var(--text-color);
+            padding: 1.5rem;
+            font-size: 1.2rem;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: background-color 0.2s ease, border-color 0.2s ease;
+        }
+        a:hover {
+            background-color: var(--link-hover-bg);
+            border-color: var(--text-color);
+        }
+        a strong {
+            display: block;
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+        a span {
+            display: block;
+            font-size: 0.9rem;
+            opacity: 0.7;
+        }
     </style>
 </head>
 <body>
     <h1>ShaderUp Examples</h1>
     <ul>
-        <li><a href="./basic/">1. Basic Setup</a></li>
-        <li><a href="./color-cycle/">2. Color Cycle</a></li>
-        <li><a href="./instanced-effects/">3. Instanced Effects (Complex)</a></li>
-        <li><a href="./simple-instancing/">4. Instanced Effects (Simple)</a></li>
+        <li><a href="./basic/"><strong>1. Basic Setup</strong><span>A minimal example to get started.</span></a></li>
+        <li><a href="./color-cycle/"><strong>2. Color Cycle</strong><span>Uses uniforms to animate color over time.</span></a></li>
+        <li><a href="./instanced-effects/"><strong>3. Instanced Effects (Complex)</strong><span>Multiple animated effects on HTML elements.</span></a></li>
+        <li><a href="./simple-instancing/"><strong>4. Instanced Effects (Simple)</strong><span>Basic hover effect on buttons using the factory method.</span></a></li>
         <!-- More examples will be added here -->
     </ul>
 </body>
