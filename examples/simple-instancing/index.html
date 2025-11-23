@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShaderUp - Simple Instancing</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #111;
+            color: #fff;
+            padding: 40px;
+        }
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -1;
+            pointer-events: none;
+        }
+        .shader-button {
+            background: transparent;
+            border: none;
+            color: white;
+            padding: 20px 40px;
+            font-size: 1.2rem;
+            margin: 10px;
+            cursor: pointer;
+            /* The shader will draw the background */
+        }
+    </style>
+</head>
+<body>
+    <h1>Simple Instancing with ShaderUp</h1>
+    <p>Each button below is a separate HTML element. A single WebGL draw call is used to render the background effect for all of them. Hover over the buttons to see the effect change.</p>
+
+    <button class="shader-button">Button A</button>
+    <button class="shader-button">Button B</button>
+    <button class="shader-button">Button C</button>
+    <button class="shader-button">Another Button</button>
+
+    <canvas id="shader-canvas"></canvas>
+    <script type="module" src="main.ts"></script>
+</body>
+</html>

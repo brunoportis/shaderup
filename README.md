@@ -66,110 +66,57 @@ img.onload = () => {
 };
 ```
 
-## Interactivity: Uniforms & Textures
+## Instanced Rendering for UI
 
-Pass data from your JavaScript into the shader.
-
-```javascript
-// Register custom uniforms during setup
-const shader = new ShaderUp({
-  // ...,
-  uniforms: {
-    u_mouse: 'vec2', // Tell shaderup about your uniform's type
-  }
-});
-
-// Then update it from your code
-window.addEventListener('mousemove', (e) => {
-  shader.uniforms.u_mouse = [e.clientX, e.clientY];
-});
-
-// To use an image:
-const img = new Image();
-img.src = 'path/to/your/image.png';
-img.onload = () => {
-  // Make sure you have a `sampler2D` uniform registered
-  shader.setTexture('u_your_texture', img);
-};
-```
-
-## Instanced Rendering
-
-`shaderup` supports high-performance instanced rendering, allowing you to draw many objects (instances) with varied properties in a single draw call. This is ideal for applying GPU effects to multiple UI elements, creating particle systems, and more.
-
-Instead of rendering a fullscreen effect, you can draw a small quad for each of your HTML elements and position it using `getBoundingClientRect()`.
-
-To use instanced rendering:
-
-1.  **Define your instance attributes**: These are the per-instance data (e.g., position, color) that your shaders will use.
-2.  **Provide a custom vertex shader**: Your vertex shader will declare `in` attributes matching your instance data.
-3.  **Update instance data**: In your animation loop, get the position of your HTML elements and use `setData()` to pass the updated coordinates to the GPU.
+`shaderup` can apply high-performance shader effects to many UI elements at once. The easiest way is with the `ShaderUp.fromElements` factory, which automatically synchronizes rendering with your HTML elements.
 
 ```javascript
 import { ShaderUp } from 'shaderup';
-import fragmentShader from './instanced-shader.frag?raw'; // Your fragment shader
+import fragmentShader from './ui-shader.frag?raw'; // Your fragment shader
 
-// A simple vertex shader to position and size each instance
+// A simple vertex shader to position each instance
 const vertexShader = `#version 300 es
     in vec2 a_quadVertex;
     in vec4 a_instanceRect; // xy=position, zw=size
-    in vec3 a_instanceColor;
+    in float a_hoverState;
 
     uniform vec2 u_resolution;
-    out vec3 v_color;
+    out float v_hover;
 
     void main() {
         vec2 finalPos = a_instanceRect.xy + (a_quadVertex * a_instanceRect.zw);
         vec2 clipSpace = (finalPos / u_resolution) * 2.0 - 1.0;
         clipSpace.y *= -1.0;
         gl_Position = vec4(clipSpace, 0.0, 1.0);
-        v_color = a_instanceColor;
+        v_hover = a_hoverState;
     }
 `;
 
 // 1. Get your HTML elements
-const elements = Array.from(document.querySelectorAll('.my-button-class'));
-const numInstances = elements.length;
+const buttons = document.querySelectorAll('.my-button');
 
-// 2. Initialize ShaderUp for instancing
-const shader = new ShaderUp({
-  canvasId: 'instanced-canvas',
-  renderMode: 'instanced',
+// 2. Create the shader with the factory
+const shader = ShaderUp.fromElements({
+  elements: buttons,
   fragmentShader,
   vertexShader,
-  numInstances,
   attributes: {
-    'a_instanceRect':  { size: 4, instanced: true },
-    'a_instanceColor': { size: 3, instanced: true },
+    // 'a_instanceRect' is handled automatically.
+    // Define any other custom data you want per-element.
+    'a_hoverState': { size: 1, instanced: true },
+  },
+  onUpdate: (data, elements, stride) => {
+    // This runs every frame. Populate your custom data here.
+    for (let i = 0; i < elements.length; i++) {
+        const ptr = i * stride;
+        const isHovering = elements[i].matches(':hover');
+        data[ptr + 4] = isHovering ? 1.0 : 0.0; // a_hoverState
+    }
   }
 });
 
-// 3. Create a data array and update it in a loop
-const instanceData = new Float32Array(numInstances * (4 + 3)); // 4 for rect, 3 for color
-
-function updateAndRender() {
-    const dpr = window.devicePixelRatio;
-    let ptr = 0;
-    for (let i = 0; i < numInstances; i++) {
-        const rect = elements[i].getBoundingClientRect();
-
-        // Position & Size
-        instanceData[ptr++] = rect.left * dpr;
-        instanceData[ptr++] = rect.top * dpr;
-        instanceData[ptr++] = rect.width * dpr;
-        instanceData[ptr++] = rect.height * dpr;
-        
-        // Color (e.g., cycle colors)
-        instanceData[ptr++] = Math.sin(i * 0.5) * 0.5 + 0.5;
-        instanceData[ptr++] = Math.cos(i * 0.3) * 0.5 + 0.5;
-        instanceData[ptr++] = Math.sin(i * 0.7) * 0.5 + 0.5;
-    }
-    shader.setData(instanceData);
-    requestAnimationFrame(updateAndRender);
-}
-
+// 3. Start the render loop
 shader.start();
-updateAndRender(); // Start the loop
 ```
 
 ## API Quick Reference
