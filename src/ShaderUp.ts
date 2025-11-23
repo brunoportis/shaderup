@@ -233,25 +233,28 @@ export class ShaderUp {
     const { program, attributeOptions } = this;
     if (!program || !attributeOptions) return;
     
-    // 1. Geometry (Quad for instancing)
+    // 1. Setup Base Geometry (a non-instanced quad)
     const quadBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0, 1,0, 0,1, 0,1, 1,0, 1,1]), gl.STATIC_DRAW);
     
     const quadLoc = gl.getAttribLocation(program, "a_quadVertex");
-    gl.enableVertexAttribArray(quadLoc);
-    gl.vertexAttribPointer(quadLoc, 2, gl.FLOAT, false, 0, 0);
+    if (quadLoc !== -1) {
+      gl.enableVertexAttribArray(quadLoc);
+      gl.vertexAttribPointer(quadLoc, 2, gl.FLOAT, false, 0, 0);
+      gl.vertexAttribDivisor(quadLoc, 0); // Mark as per-vertex
+    }
 
-    // 2. Instance Buffer
+    // 2. Setup Instanced Data Buffer
     this.instanceBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
 
-    // 3. Calculate Stride and setup attributes
-    let stride = 0;
+    // 3. Calculate Stride and setup attribute pointers for the instance buffer
+    let instanceStride = 0;
     for (const name in attributeOptions) {
       const opts = attributeOptions[name];
       // Stride is in bytes. Assumes FLOAT for now.
-      stride += opts.size * 4; 
+      instanceStride += opts.size * 4; 
     }
     
     let offset = 0;
@@ -259,18 +262,14 @@ export class ShaderUp {
       const opts = attributeOptions[name];
       const loc = gl.getAttribLocation(program, name);
       if (loc === -1) {
-        console.warn(`[ShaderUp] Attribute "${name}" not found in shader.`);
+        console.warn(`[ShaderUp] Instanced attribute "${name}" not found in shader.`);
         continue;
       }
       
       gl.enableVertexAttribArray(loc);
-      // Data type mapping could be extended here
       const glType = gl.FLOAT; 
-      gl.vertexAttribPointer(loc, opts.size, glType, false, stride, offset);
-      
-      if (opts.instanced) {
-        gl.vertexAttribDivisor(loc, 1);
-      }
+      gl.vertexAttribPointer(loc, opts.size, glType, false, instanceStride, offset);
+      gl.vertexAttribDivisor(loc, 1); // Mark as per-instance
 
       offset += opts.size * 4;
     }

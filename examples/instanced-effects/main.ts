@@ -96,8 +96,7 @@ const shader = new ShaderUp({
         'a_instanceRect':   { size: 4, instanced: true },
         'a_instanceHover':  { size: 1, instanced: true },
         'a_instanceColor':  { size: 3, instanced: true },
-        'a_instanceEffect': { size: 1, instanced: true },
-        'a_quadVertex':     { size: 2, instanced: false }, // The base geometry
+        'a_instanceEffect': { size: 1, instanced: true }
     }
 });
 
