@@ -16,6 +16,8 @@ export default defineConfig({
         'examples/index': resolve(__dirname, 'examples/index.html'),
         'examples/basic/index': resolve(__dirname, 'examples/basic/index.html'),
         'examples/color-cycle/index': resolve(__dirname, 'examples/color-cycle/index.html'),
+        'examples/instanced-effects/index': resolve(__dirname, 'examples/instanced-effects/index.html'),
+        'examples/simple-instancing/index': resolve(__dirname, 'examples/simple-instancing/index.html'),
       },
     },
   },
