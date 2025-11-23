@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShaderUp - Instanced Effects</title>
+    <style>
+        :root {
+            --bg-color: #050505;
+            --text-color: #ffffff;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: sans-serif;
+            overflow-x: hidden;
+        }
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 0;
+            pointer-events: none;
+        }
+        main {
+            position: relative;
+            z-index: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 100px 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 40px;
+        }
+        .shader-btn {
+            appearance: none;
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            color: white;
+            padding: 60px 30px;
+            font-size: 1.5rem;
+            cursor: pointer;
+            text-align: left;
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gl-canvas"></canvas>
+    <main>
+        <button class="shader-btn">Effect 1</button>
+        <button class="shader-btn">Effect 2</button>
+        <button class="shader-btn">Effect 3</button>
+        <button class="shader-btn">Effect 1</button>
+        <button class="shader-btn">Effect 2</button>
+        <button class="shader-btn">Effect 3</button>
+    </main>
+    <script type="module" src="/main.ts"></script>
+</body>
+</html>

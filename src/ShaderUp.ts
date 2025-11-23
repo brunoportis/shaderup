@@ -1,22 +1,47 @@
 export type UniformType = 'float' | 'vec2' | 'vec3' | 'vec4' | 'int' | 'sampler2D';
+export type RenderMode = 'fullscreen' | 'instanced';
+
+/**
+ * Defines a single vertex attribute for a WebGL buffer.
+ */
+export interface AttributeOptions {
+  /** The size of the attribute (number of components, e.g., 3 for a vec3). */
+  size: 1 | 2 | 3 | 4;
+  /** The data type of the attribute. Defaults to 'FLOAT'. */
+  type?: 'FLOAT' | 'UNSIGNED_BYTE'; // Add more as needed
+  /** Whether this attribute is instanced (advances per instance, not per vertex). Defaults to false. */
+  instanced?: boolean;
+}
 
 /**
  * Configuration for the ShaderUp instance.
  */
 export interface ShaderUpOptions {
+  /** The rendering mode. 'fullscreen' for a simple fragment shader, 'instanced' for hardware instancing. */
+  renderMode?: RenderMode;
   /** The ID of the canvas element in the DOM. */
   canvasId?: string;
   /** Direct reference to a canvas element. Takes precedence over canvasId. */
   canvas?: HTMLCanvasElement;
   /** The source code for the fragment shader. */
   fragmentShader: string;
-  /** Optional source code for the vertex shader. Defaults to a full-screen triangle. */
-  vertexShaderSource?: string;
+  /** Optional source code for the vertex shader. Defaults to a shader appropriate for the renderMode. */
+  vertexShader?: string;
   /** Map of uniform names to their types. */
   uniforms?: { [name: string]: UniformType };
+  /**
+   * For 'instanced' mode, defines the layout of the vertex buffer.
+   * The order of attributes must match the interleaved buffer layout.
+   */
+  attributes?: { [name: string]: AttributeOptions };
+  /**
+   * For 'instanced' mode, the number of instances to draw.
+   */
+  numInstances?: number;
   /** Optional callback triggered when the canvas is resized. */
   onResize?: (width: number, height: number) => void;
 }
+
 
 interface UniformInfo {
   location: WebGLUniformLocation;
@@ -45,12 +70,18 @@ export class ShaderUp {
   public readonly uniforms: { [name: string]: any } = {};
 
   // --- Private Internal State ---
+  private readonly renderMode: RenderMode;
+  private readonly attributeOptions?: { [name: string]: AttributeOptions };
+  private numInstances: number;
+
+  // --- Private Internal State ---
   private program: WebGLProgram | null = null;
   private animationFrameId: number | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private isDestroyed = false;
   private uniformInfo: Map<string, UniformInfo> = new Map();
   private textures: Map<number, WebGLTexture> = new Map();
+  private instanceBuffer: WebGLBuffer | null = null;
   
   // Cache locations for standard uniforms to avoid map lookups in the loop
   private timeLocation: WebGLUniformLocation | null = null;
@@ -65,6 +96,22 @@ export class ShaderUp {
    * @throws Error if WebGL is not supported or canvas is missing.
    */
   constructor(options: ShaderUpOptions) {
+    this.renderMode = options.renderMode || 'fullscreen';
+    
+    // Validate options for instanced mode
+    if (this.renderMode === 'instanced') {
+      if (!options.numInstances) {
+        throw new Error("[ShaderUp] 'numInstances' is required for 'instanced' renderMode.");
+      }
+      if (!options.attributes) {
+        throw new Error("[ShaderUp] 'attributes' are required for 'instanced' renderMode.");
+      }
+      this.numInstances = options.numInstances;
+      this.attributeOptions = options.attributes;
+    } else {
+      this.numInstances = 0;
+    }
+
     // 1. Resolve Canvas
     if (options.canvas) {
       this.canvas = options.canvas;
@@ -80,19 +127,25 @@ export class ShaderUp {
 
     // 2. Initialize Context (Prefer WebGL 2, Fallback to WebGL 1)
     const contextAttributes: WebGLContextAttributes = { 
-      alpha: false, 
+      alpha: true, // Alpha needed for overlays
       antialias: false 
     }; 
     
-    let gl: WebGLRenderingContext | WebGL2RenderingContext | null = 
-      this.canvas.getContext('webgl2', contextAttributes) as WebGL2RenderingContext;
+    let gl: WebGLRenderingContext | WebGL2RenderingContext | null;
 
-    if (!gl) {
-      gl = this.canvas.getContext('webgl', contextAttributes) as WebGLRenderingContext;
+    if (this.renderMode === 'instanced') {
+      gl = this.canvas.getContext('webgl2', contextAttributes) as WebGL2RenderingContext;
+      if (!gl) throw new Error("[ShaderUp] WebGL2 is required for 'instanced' renderMode.");
+    } else {
+      gl = this.canvas.getContext('webgl2', contextAttributes) as WebGL2RenderingContext;
+      if (!gl) {
+        gl = this.canvas.getContext('webgl', contextAttributes) as WebGLRenderingContext;
+      }
     }
     
     if (!gl) throw new Error("[ShaderUp] WebGL not supported in this browser.");
     this.gl = gl;
+
 
     // 3. Bind Robustness Events
     this.canvas.addEventListener('webglcontextlost', this.handleContextLost);
@@ -116,7 +169,7 @@ export class ShaderUp {
   private initResources(options: ShaderUpOptions): void {
     const { gl } = this;
     
-    const vsSource = options.vertexShaderSource || this.getDefaultVertexShader();
+    const vsSource = options.vertexShader || this.getDefaultVertexShader();
     const vertexShader = this.createShader(gl.VERTEX_SHADER, vsSource);
     const fragmentShader = this.createShader(gl.FRAGMENT_SHADER, options.fragmentShader);
     
@@ -126,15 +179,11 @@ export class ShaderUp {
     gl.deleteShader(vertexShader);
     gl.deleteShader(fragmentShader);
 
-    // Setup Full-Screen Triangle Buffer
-    const positionBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    // A single triangle that covers the range [-1, -1] to [3, 3] covers the whole screen
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-
-    const positionLoc = gl.getAttribLocation(this.program, ShaderUp.ATTRIB_POSITION);
-    gl.enableVertexAttribArray(positionLoc);
-    gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, 0, 0);
+    if (this.renderMode === 'fullscreen') {
+      this.initFullscreenResources();
+    } else {
+      this.initInstancedResources();
+    }
 
     // Cache Standard Uniform Locations
     this.timeLocation = gl.getUniformLocation(this.program, ShaderUp.UNIFORM_TIME);
@@ -164,6 +213,81 @@ export class ShaderUp {
     // Initial resize to set viewport
     this.handleResize(options.onResize);
   }
+
+  private initFullscreenResources(): void {
+    const { gl, program } = this;
+    if (!program) return;
+
+    // Setup Full-Screen Triangle Buffer
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+
+    const positionLoc = gl.getAttribLocation(program, ShaderUp.ATTRIB_POSITION);
+    gl.enableVertexAttribArray(positionLoc);
+    gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, 0, 0);
+  }
+
+  private initInstancedResources(): void {
+    const gl = this.gl as WebGL2RenderingContext; // Ensured by constructor check
+    const { program, attributeOptions } = this;
+    if (!program || !attributeOptions) return;
+    
+    // 1. Geometry (Quad for instancing)
+    const quadBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0, 1,0, 0,1, 0,1, 1,0, 1,1]), gl.STATIC_DRAW);
+    
+    const quadLoc = gl.getAttribLocation(program, "a_quadVertex");
+    gl.enableVertexAttribArray(quadLoc);
+    gl.vertexAttribPointer(quadLoc, 2, gl.FLOAT, false, 0, 0);
+
+    // 2. Instance Buffer
+    this.instanceBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
+
+    // 3. Calculate Stride and setup attributes
+    let stride = 0;
+    for (const name in attributeOptions) {
+      const opts = attributeOptions[name];
+      // Stride is in bytes. Assumes FLOAT for now.
+      stride += opts.size * 4; 
+    }
+    
+    let offset = 0;
+    for (const name in attributeOptions) {
+      const opts = attributeOptions[name];
+      const loc = gl.getAttribLocation(program, name);
+      if (loc === -1) {
+        console.warn(`[ShaderUp] Attribute "${name}" not found in shader.`);
+        continue;
+      }
+      
+      gl.enableVertexAttribArray(loc);
+      // Data type mapping could be extended here
+      const glType = gl.FLOAT; 
+      gl.vertexAttribPointer(loc, opts.size, glType, false, stride, offset);
+      
+      if (opts.instanced) {
+        gl.vertexAttribDivisor(loc, 1);
+      }
+
+      offset += opts.size * 4;
+    }
+  }
+
+  /**
+   * For 'instanced' mode, sets the data for all instances.
+   * @param data An array containing the interleaved attribute data for all instances.
+   */
+  public setData(data: Float32Array): void {
+    if (this.renderMode !== 'instanced' || this.isDestroyed) return;
+    const gl = this.gl;
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+  }
+
 
   /**
    * Updates a texture for a specific uniform.
@@ -241,6 +365,11 @@ export class ShaderUp {
     this.textures.forEach(tex => gl.deleteTexture(tex));
     this.textures.clear();
 
+    if (this.instanceBuffer) {
+      gl.deleteBuffer(this.instanceBuffer);
+      this.instanceBuffer = null;
+    }
+
     if (this.program) {
       gl.deleteProgram(this.program);
       this.program = null;
@@ -276,6 +405,36 @@ export class ShaderUp {
   }
 
   private getDefaultVertexShader(): string {
+    if (this.renderMode === 'instanced') {
+      // This shader is a generic version of the one from the prototype.
+      // It expects instance attributes for position/size and passes them on.
+      // Users can replace it with a more specific one.
+      return `#version 300 es
+        in vec2 a_quadVertex; // (0,0) to (1,1)
+        
+        // Example instance attributes (users must define these in options)
+        in vec4 a_instanceRect;   // xy = pos, zw = size
+        
+        uniform vec2 u_resolution;
+        
+        out vec2 v_uv;
+
+        void main() {
+            // Create a screen-space position from the instance rect and quad vertex
+            vec2 finalPos = a_instanceRect.xy + (a_quadVertex * a_instanceRect.zw);
+        
+            // Convert from pixels to clip space
+            vec2 clipSpace = (finalPos / u_resolution) * 2.0 - 1.0;
+            clipSpace.y *= -1.0; // Flip Y for WebGL
+        
+            gl_Position = vec4(clipSpace, 0.0, 1.0);
+        
+            v_uv = a_quadVertex;
+        }
+      `;
+    }
+    
+    // Default fullscreen shader
     return `
       attribute vec2 ${ShaderUp.ATTRIB_POSITION};
       void main() {
@@ -357,7 +516,14 @@ export class ShaderUp {
       }
     }
 
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    // Draw the geometry
+    if (this.renderMode === 'fullscreen') {
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    } else {
+      const gl2 = gl as WebGL2RenderingContext;
+      // Primitives, start offset, vertex count, instance count
+      gl2.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.numInstances);
+    }
 
     this.animationFrameId = requestAnimationFrame(this.boundRender);
   }
